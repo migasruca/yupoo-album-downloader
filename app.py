@@ -4,78 +4,72 @@ from bs4 import BeautifulSoup
 import zipfile
 import io
 
-# Configuração de estilo moderna
-st.set_page_config(page_title="Yupoo Pro Downloader", layout="wide")
-
-st.markdown("""
-    <style>
-    .stButton>button { width: 100%; border-radius: 20px; height: 3em; background-color: #ff4b4b; color: white; }
-    .stDownloadButton>button { width: 100%; border-radius: 20px; background-color: #00c853; color: white; }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(page_title="Yupoo Album Downloader", layout="wide")
 
 st.title("📦 Yupoo Album Downloader Pro")
-st.write("Insira o link e baixe o álbum completo em segundos.")
 
-url = st.text_input("Link do álbum Yupoo:", placeholder="https://dongshanstore.x.yupoo.com/albums/...")
+url = st.text_input("Link do álbum Yupoo:")
 
-# Cabeçalhos globais para enganar a proteção do Yupoo
+# Headers mais robustos
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
     "Referer": "https://yupoo.com/"
 }
-
-def get_image_bytes(img_url):
-    try:
-        response = requests.get(img_url, headers=HEADERS, timeout=10)
-        return response.content
-    except:
-        return None
 
 if st.button("🚀 Extrair Álbum"):
     if url:
         try:
-            with st.spinner("A processar galeria..."):
+            with st.spinner("A extrair imagens..."):
                 res = requests.get(url, headers=HEADERS)
                 soup = BeautifulSoup(res.content, "html.parser")
                 
+                # Procura as imagens especificamente nas divs da galeria
                 images = []
-                # Captura os links reais das imagens
                 for img in soup.find_all('img'):
+                    # O Yupoo guarda a imagem real em data-origin-src ou data-src
                     src = img.get('data-origin-src') or img.get('data-src') or img.get('src')
                     if src and "logo" not in src.lower() and not src.startswith('data:image'):
                         if src.startswith('//'): src = 'https:' + src
                         images.append(src)
                 
+                # Remover duplicados mantendo a ordem
+                images = list(dict.fromkeys(images))
+
             if images:
                 st.success(f"Encontradas {len(images)} imagens!")
                 
-                # Preparar o ZIP
                 zip_buffer = io.BytesIO()
+                valid_images_count = 0
+                
                 with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                    
-                    # Criar colunas para a grelha visual
                     cols = st.columns(4)
                     
                     for i, img_url in enumerate(images):
-                        img_data = get_image_bytes(img_url)
-                        if img_data:
-                            # Adicionar ao ZIP
-                            zip_file.writestr(f"foto_{i+1}.jpg", img_data)
-                            
-                            # Mostrar na interface (usando os bytes para evitar bloqueio)
-                            with cols[i % 4]:
-                                st.image(img_data, use_container_width=True, caption=f"Foto {i+1}")
+                        try:
+                            img_res = requests.get(img_url, headers=HEADERS, timeout=10)
+                            if img_res.status_code == 200:
+                                img_data = img_res.content
+                                # Adiciona ao ZIP
+                                zip_file.writestr(f"foto_{i+1}.jpg", img_data)
+                                valid_images_count += 1
+                                
+                                # Mostra na interface
+                                with cols[i % 4]:
+                                    st.image(img_data, use_container_width=True)
+                        except:
+                            continue
                 
-                st.divider()
-                st.download_button(
-                    label="⬇️ BAIXAR TUDO AGORA (.ZIP)",
-                    data=zip_buffer.getvalue(),
-                    file_name="album_yupoo.zip",
-                    mime="application/zip"
-                )
+                if valid_images_count > 0:
+                    st.divider()
+                    st.download_button(
+                        label=f"⬇️ BAIXAR {valid_images_count} FOTOS (.ZIP)",
+                        data=zip_buffer.getvalue(),
+                        file_name="album_yupoo.zip",
+                        mime="application/zip",
+                        use_container_width=True
+                    )
             else:
-                st.error("Não detetei fotos. Verifique se o link está correto.")
+                st.warning("Não foram encontradas imagens. Tente atualizar a página.")
+                
         except Exception as e:
-            st.error(f"Erro de conexão: {e}")
-
+            st.error(f"Erro ao aceder ao álbum: {e}")
